@@ -44,8 +44,22 @@
     <% if(!disable_stats) { %>
         <%= format(QUEUE_TYPE(queue).tmpl.stats, {queue: queue}) %>
     <% } %>
+    <% if (is_quorum(queue)) { %>
+        <span id="quorum-queue-recorded-leader" data-leader="<%= fmt_string(queue.leader, '') %>" hidden></span>
+    <% } %>
   </div>
 </div>
+
+<% if (is_quorum(queue)) { %>
+<div class="section">
+  <h2>Quorum Status</h2>
+  <div class="hider">
+    <div id="quorum-queue-status" data-vhost="<%= fmt_string(queue.vhost) %>" data-name="<%= fmt_string(queue.name) %>">
+      <p>Loading&hellip;</p>
+    </div>
+  </div>
+</div>
+<% } %>
 
 <% if (rates_mode == 'detailed') { %>
 <div class="section-hidden">

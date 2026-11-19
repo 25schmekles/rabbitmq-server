@@ -5783,6 +5783,11 @@ qq_status_test(Config) ->
             'Last Written','Machine Version','Membership','Node Name',
             'Raft State','Snapshot Index','Term'],
     ?assertEqual(lists:sort(Keys), lists:sort(maps:keys(MapRes))),
+    {ok, {{_, ?OK, _}, RespHeaders, _}} =
+        rabbit_mgmt_test_util:req(Config, 0, get, "/queues/quorum/%2f/qq_status/status",
+                                  [rabbit_mgmt_test_util:auth_header("guest", "guest")]),
+    Node = rabbit_ct_broker_helpers:get_node_config(Config, 0, nodename),
+    ?assertEqual(atom_to_list(Node), proplists:get_value("x-rabbitmq-node", RespHeaders)),
     http_delete(Config, "/queues/%2f/qq_status", {group, '2xx'}),
 
 

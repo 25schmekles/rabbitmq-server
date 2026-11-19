@@ -28,31 +28,29 @@ allowed_methods(ReqData, Context) ->
 content_types_provided(ReqData, Context) ->
    {rabbit_mgmt_util:responder_map(to_json), ReqData, Context}.
 
+%% Only a lookup, as `to_json/2` contacts every member and can be slow.
 resource_exists(ReqData, Context) ->
-    {case queue(ReqData) of
-         not_found -> false;
-         _         -> true
-     end, ReqData, Context}.
+    Exists = case rabbit_mgmt_util:vhost(ReqData) of
+                 not_found ->
+                     false;
+                 VHost ->
+                     QName = rabbit_mgmt_util:id(queue, ReqData),
+                     rabbit_amqqueue:exists(rabbit_misc:r(VHost, queue, QName))
+             end,
+    {Exists, ReqData, Context}.
 
-to_json(ReqData, Context) ->
-    case  queue(ReqData) of
+%% Members are reported from the point of view of the node that serves
+%% the request.
+to_json(ReqData0, Context) ->
+    ReqData = cowboy_req:set_resp_header(<<"x-rabbitmq-node">>,
+                                         atom_to_binary(node()), ReqData0),
+    VHost = rabbit_mgmt_util:vhost(ReqData),
+    QName = rabbit_mgmt_util:id(queue, ReqData),
+    case rabbit_quorum_queue:status(VHost, QName) of
         {error, Reason} ->
             failure(Reason, ReqData, Context);
         Res ->
             rabbit_mgmt_util:reply(Res, ReqData, Context)
-    end.
-
-queue(ReqData) ->
-    case rabbit_mgmt_util:vhost(ReqData) of
-        not_found -> not_found;
-        VHost     -> queue(VHost, rabbit_mgmt_util:id(queue, ReqData))
-    end.
-
-queue(VHost, QName) ->
-    Name = rabbit_misc:r(VHost, queue, QName),
-    case rabbit_amqqueue:lookup(Name) of
-        {ok, _Q}            -> rabbit_quorum_queue:status(VHost, QName);
-        {error, not_found} -> not_found
     end.
 
 

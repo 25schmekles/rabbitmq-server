@@ -1,0 +1,116 @@
+<%
+  var leaders = [];
+  var leader_term = undefined;
+  var unreachable = [];
+  var has_az = replicas.length > 0 && replicas[0]['AZ'] !== undefined;
+  for (var i = 0; i < replicas.length; i++) {
+    if (replicas[i]['Raft State'] == 'leader') {
+      leaders.push(replicas[i]['Node Name']);
+      if (leader_term == undefined || replicas[i]['Term'] > leader_term) {
+        leader_term = replicas[i]['Term'];
+      }
+    }
+    // A member that could not be queried has the error as its Raft state.
+    if (replicas[i]['Membership'] == '' && replicas[i]['Raft State'] != 'noproc') {
+      unreachable.push(replicas[i]['Node Name']);
+    }
+  }
+  var recorded_leader = (leader != undefined && leader != '') ? leader : undefined;
+  var reporter = (reporting_node != undefined) ? fmt_node(reporting_node) : 'the reporting node';
+%>
+<% if (leaders.length == 0 && unreachable.length > 0) { %>
+  <p class="warning">
+    No replica that <%= reporter %> could reach reports itself as the Raft leader. It could not reach <%= fmt_string(unreachable.join(', ')) %>, so the leader may be among those.
+  </p>
+<% } else if (leaders.length == 0) { %>
+  <p class="warning">
+    No replica reports itself as the Raft leader.
+<% if (recorded_leader != undefined) { %>
+    The recorded leader (<%= fmt_node(recorded_leader) %>) is the last one reported and is stale.
+<% } %>
+  </p>
+<% } else if (leaders.length > 1) { %>
+  <p class="warning">
+    More than one replica reports itself as the Raft leader: <%= fmt_string(leaders.join(', ')) %>.
+  </p>
+<% } else if (recorded_leader != undefined && recorded_leader != leaders[0]) { %>
+  <p class="warning">
+    The recorded leader (<%= fmt_node(recorded_leader) %>) is not the replica in the Raft leader state (<%= fmt_node(leaders[0]) %>).
+  </p>
+<% } %>
+  <p>
+<% if (reporting_node != undefined) { %>
+    Reported by <b><%= fmt_node(reporting_node) %></b> at <%= fmt_string(updated_at) %>. Members it cannot reach are shown as such, even if other nodes can reach them.
+<% } else { %>
+    Updated at <%= fmt_string(updated_at) %>.
+<% } %>
+  </p>
+<table class="list" id="quorum-queue-status-table">
+  <thead>
+    <tr>
+      <th>Node</th>
+<% if (has_az) { %>
+      <th>AZ</th>
+<% } %>
+      <th>Raft State</th>
+      <th>Membership</th>
+      <th>Term</th>
+      <th>Commit Index</th>
+      <th>Last Applied</th>
+      <th>Last Log Index</th>
+      <th>Last Written</th>
+      <th>Snapshot Index</th>
+      <th>Machine Version</th>
+    </tr>
+  </thead>
+  <tbody>
+<%
+  for (var i = 0; i < replicas.length; i++) {
+    var replica = replicas[i];
+    var state = replica['Raft State'];
+    var membership = replica['Membership'];
+    var term = replica['Term'];
+    var running = membership != '';
+%>
+    <tr<%= alt_rows(i) %>>
+      <td><%= fmt_node(replica['Node Name']) %></td>
+<% if (has_az) { %>
+      <td><%= fmt_string(replica['AZ']) %></td>
+<% } %>
+      <td>
+<% if (state == 'leader' || state == 'follower') { %>
+        <%= fmt_string(state) %>
+<% } else if (!running) { %>
+        <abbr class="status-red" title="The replica is not running on this node, or its node could not be reached. Other values in this row are unavailable.">
+          <%= fmt_string(state) %></abbr>
+<% } else { %>
+        <abbr class="status-yellow" title="The replica is running but is neither the leader nor a follower.">
+          <%= fmt_string(state) %></abbr>
+<% } %>
+      </td>
+      <td>
+<% if (!running || membership == 'voter') { %>
+        <%= fmt_string(membership) %>
+<% } else { %>
+        <abbr class="status-yellow" title="The replica does not take part in leader elections or in the commit quorum.">
+          <%= fmt_string(membership) %></abbr>
+<% } %>
+      </td>
+      <td>
+<% if (running && leader_term != undefined && term != leader_term) { %>
+        <abbr class="status-yellow" title="Differs from the leader's term (<%= fmt_string(leader_term) %>).">
+          <%= fmt_string(term) %></abbr>
+<% } else { %>
+        <%= fmt_string(term) %>
+<% } %>
+      </td>
+      <td><%= fmt_string(replica['Commit Index']) %></td>
+      <td><%= fmt_string(replica['Last Applied']) %></td>
+      <td><%= fmt_string(replica['Last Log Index']) %></td>
+      <td><%= fmt_string(replica['Last Written']) %></td>
+      <td><%= fmt_string(replica['Snapshot Index']) %></td>
+      <td><%= fmt_string(replica['Machine Version']) %></td>
+    </tr>
+<% } %>
+  </tbody>
+</table>

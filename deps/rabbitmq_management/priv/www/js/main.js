@@ -1243,6 +1243,7 @@ function postprocess_partial() {
     }
 
     feature_flags_refresh();
+    refresh_quorum_status();
 }
 
 function update_multifields() {
@@ -1729,6 +1730,72 @@ function with_req(method, path, body, fun, on404fun) {
     };
     outstanding_reqs.push(req);
     req.send(body);
+}
+
+// Not fetched with `with_req`, as the status call contacts every member:
+// a slow or failing call must not hold up or stop the page refresh.
+var quorum_status_req = null;
+var quorum_status_req_queue = null;
+
+function refresh_quorum_status() {
+    var section = $('#quorum-queue-status');
+    if (section.length == 0) return;
+    var vhost = section.attr('data-vhost');
+    var name = section.attr('data-name');
+    var queue_key = vhost + '/' + name;
+    if (quorum_status_req != null) {
+        if (quorum_status_req_queue == queue_key) return;
+        quorum_status_req.abort();
+    }
+    var req = xmlHttpRequest();
+    quorum_status_req = req;
+    quorum_status_req_queue = queue_key;
+    req.open('GET', 'api/queues/quorum/' + esc(vhost) + '/' + esc(name) + '/status', true);
+    var header = authorization_header();
+    if (header !== null) {
+        req.setRequestHeader('authorization', header);
+    }
+    req.onreadystatechange = function () {
+        if (req.readyState != 4) return;
+        if (quorum_status_req === req) {
+            quorum_status_req = null;
+            quorum_status_req_queue = null;
+        }
+        var target = $('#quorum-queue-status');
+        if (target.attr('data-vhost') != vhost || target.attr('data-name') != name) return;
+        target.html(format_quorum_status(req));
+    };
+    req.send(null);
+}
+
+function format_quorum_status(req) {
+    if (req.status >= 200 && req.status < 300) {
+        return format('quorum-queue-status',
+                      {replicas: JSON.parse(req.responseText),
+                       leader: $('#quorum-queue-recorded-leader').attr('data-leader'),
+                       reporting_node: req.getResponseHeader('x-rabbitmq-node'),
+                       updated_at: fmt_date(new Date())});
+    }
+    var message;
+    if (req.status == 0) {
+        message = 'Could not contact the management API.';
+    } else if (req.status == 401 || req.status == 403) {
+        message = 'Not authorised to view the quorum status of this queue (HTTP ' + req.status + ').';
+    } else if (req.status == 404) {
+        message = 'The queue no longer exists.';
+    } else if (req.status == 503) {
+        var reason;
+        try {
+            reason = JSON.parse(req.responseText).reason;
+        } catch (e) {
+            reason = undefined;
+        }
+        message = 'The quorum status could not be retrieved' +
+            (reason == undefined ? '.' : ': ' + JSON.stringify(reason) + '.');
+    } else {
+        message = 'Unexpected response from the management API (HTTP ' + req.status + ').';
+    }
+    return '<p class="warning">' + fmt_escape_html(message) + ' It is retried on the next refresh.</p>';
 }
 
 function get(url, accept, callback) {
